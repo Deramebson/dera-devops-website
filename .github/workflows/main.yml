@@ -1,0 +1,45 @@
+name: Deploy Website to EC2
+
+on:
+  push:
+    branches:
+      - main # This workflow runs when changes are pushed to the 'main' branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest # GitHub-hosted runner with Ubuntu OS
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4 # Action to pull your repository's code
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }} # Uses the secret for DockerHub username
+          password: ${{ secrets.DOCKERHUB_TOKEN }}   # Uses the secret for DockerHub token
+
+      - name: Build Docker image
+        run: | # Multi-line command
+          docker build -t deramebson/deradevopswebsite:latest .
+          # The image tag format is <DOCKERHUB_USERNAME>/<DOCKERHUB_REPO_NAME>:<TAG>
+
+      - name: Push Docker image to DockerHub
+        run: docker push deramebson/deradevopswebsite:latest
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@master # Action to SSH into a remote server
+        with:
+          host: ${{ secrets.EC2_HOST }}             # Uses the secret for EC2 Public IP
+          username: ubuntu                       # Standard username for Ubuntu EC2 instances
+          key: ${{ secrets.SSH_PRIVATE_KEY }}    # Uses the secret for your EC2 SSH private key
+          script: |                              # Commands to run on the EC2 instance
+            # Stop and remove the old container if it's running (ignore errors if not)
+            docker stop my-static-website || true
+            docker rm my-static-website || true
+            # Pull the latest image from DockerHub
+            docker pull deramebson/deradevopswebsite:latest
+            # Start a new container from the latest image, mapping ports
+            docker run -d -p 80:80 --name my-static-website deramebson/deradevopswebsite:latest
+            # Clean up old (dangling) Docker images to save space (optional but good practice)
+            docker image prune -f
